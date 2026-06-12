@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
@@ -171,8 +172,29 @@ def main() -> None:
     if cfg.port:
         _start_health_server(cfg.port)
 
+    # Webhook varsa temizle (polling ile çakışmasın)
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+
     log.info("Bot polling başlıyor…")
-    bot.infinity_polling(skip_pending=True, timeout=30)
+    # NOT: skip_pending=True KULLANMIYORUZ. Render zero-downtime deploy'da eski
+    # instance birkaç saniye hâlâ polling yaparken Telegram 409 (Conflict) döner.
+    # skip_pending'in çağırdığı ön getUpdates bu hatayı koruma döngüsünden ÖNCE,
+    # korumasız fırlatır → süreç çöker → restart döngüsü. infinity_polling'in
+    # kendi döngüsü 409'u yakalayıp yeniden dener; eski instance ölünce toparlanır.
+    while True:
+        try:
+            bot.infinity_polling(
+                timeout=30,
+                long_polling_timeout=30,
+                logger_level=logging.WARNING,
+            )
+            break  # temiz çıkış (stop çağrıldıysa)
+        except Exception:
+            log.exception("Polling beklenmedik şekilde durdu; 5 sn sonra tekrar")
+            time.sleep(5)
 
 
 if __name__ == "__main__":  # pragma: no cover
