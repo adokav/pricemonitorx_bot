@@ -140,7 +140,11 @@ class Scheduler:
             # Yeni sinyal: eşiği aştı mı?
             if analysis.composite >= self.cfg.alert_score_threshold:
                 self.storage.upsert_open_signal(
-                    symbol, analysis.price, analysis.rating, analysis.composite
+                    symbol,
+                    analysis.price,
+                    analysis.rating,
+                    analysis.composite,
+                    stop=analysis.stop_suggestion,
                 )
                 self._broadcast(symbol, formatting.format_new_signal(analysis))
             return
@@ -158,9 +162,13 @@ class Scheduler:
             self.storage.delete_open_signal(symbol)
             self._broadcast(symbol, msg)
         else:
-            # Hâlâ açık — skoru güncelle
+            # Hâlâ açık — skoru güncelle (giriş fiyatı ve stop korunur)
             self.storage.upsert_open_signal(
-                symbol, open_signal.entry_price, analysis.rating, analysis.composite
+                symbol,
+                open_signal.entry_price,
+                analysis.rating,
+                analysis.composite,
+                stop=open_signal.stop,
             )
 
     def _broadcast(self, symbol: str, text: str) -> None:

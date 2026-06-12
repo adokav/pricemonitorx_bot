@@ -25,6 +25,7 @@ class OpenSignal:
     rating: str
     score: float
     created_at: float
+    stop: Optional[float] = None
 
 
 @dataclass
@@ -110,13 +111,33 @@ class Storage:
             f"UNIQUE(chat_id, symbol))",
             f"CREATE TABLE IF NOT EXISTS open_signals ("
             f"symbol TEXT PRIMARY KEY, entry_price {real} NOT NULL, "
-            f"rating TEXT NOT NULL, score {real} NOT NULL, created_at {real} NOT NULL)",
+            f"rating TEXT NOT NULL, score {real} NOT NULL, created_at {real} NOT NULL, "
+            f"stop {real})",
             f"CREATE TABLE IF NOT EXISTS snapshots ("
             f"symbol TEXT PRIMARY KEY, score {real} NOT NULL, rating TEXT NOT NULL, "
             f"price {real} NOT NULL, updated_at {real} NOT NULL)",
         ]
         for stmt in statements:
             self._exec(stmt)
+        # Sonradan eklenen sütunlar için güvenli migrasyon (eski tablolar için)
+        self._migrate_add_column("open_signals", "stop", real)
+
+    def _migrate_add_column(self, table: str, column: str, coltype: str) -> None:
+        if self.is_pg:
+            self._exec(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {coltype}")
+        else:
+            try:
+                self._exec(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+            except Exception:
+                pass  # sütun zaten var
+
+    @staticmethod
+    def _col(row, key):
+        """Satırdan kolon değerini güvenli oku (kolon yoksa None)."""
+        try:
+            return row[key]
+        except (KeyError, IndexError):
+            return None
 
     # --- aboneler ---------------------------------------------------------
     def add_subscriber(self, chat_id: int) -> None:
@@ -172,13 +193,20 @@ class Storage:
 
     # --- açık sinyaller ---------------------------------------------------
     def upsert_open_signal(
-        self, symbol: str, entry_price: float, rating: str, score: float
+        self,
+        symbol: str,
+        entry_price: float,
+        rating: str,
+        score: float,
+        stop: Optional[float] = None,
     ) -> None:
+        # ON CONFLICT yalnızca rating+score'u günceller; entry_price ve stop
+        # giriş anındaki değerlerinde kalır.
         self._exec(
-            "INSERT INTO open_signals(symbol, entry_price, rating, score, created_at) "
-            "VALUES(?, ?, ?, ?, ?) ON CONFLICT(symbol) DO UPDATE SET "
+            "INSERT INTO open_signals(symbol, entry_price, rating, score, created_at, stop) "
+            "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(symbol) DO UPDATE SET "
             "rating=excluded.rating, score=excluded.score",
-            (symbol.upper(), entry_price, rating, score, time.time()),
+            (symbol.upper(), entry_price, rating, score, time.time(), stop),
         )
 
     def get_open_signal(self, symbol: str) -> Optional[OpenSignal]:
@@ -195,6 +223,7 @@ class Storage:
             rating=row["rating"],
             score=row["score"],
             created_at=row["created_at"],
+            stop=self._col(row, "stop"),
         )
 
     def delete_open_signal(self, symbol: str) -> None:
@@ -211,6 +240,7 @@ class Storage:
                 rating=r["rating"],
                 score=r["score"],
                 created_at=r["created_at"],
+                stop=self._col(r, "stop"),
             )
             for r in rows
         ]

@@ -1,6 +1,18 @@
 """Biçimlendirme testleri — watchlist sıralaması ve eksik skorlar."""
 from crypto_signals import formatting as f
-from crypto_signals.storage import Snapshot
+from crypto_signals.storage import OpenSignal, Snapshot
+
+
+def test_active_shows_stop_when_present():
+    sig = OpenSignal("BTC", entry_price=100.0, rating="🟢 GÜÇLÜ", score=0.5, created_at=0, stop=92.0)
+    out = f.format_active([sig])
+    assert "BTC" in out and "🛑" in out and "92" in out
+
+
+def test_active_omits_stop_when_missing():
+    sig = OpenSignal("ETH", entry_price=50.0, rating="🟢 GÜÇLÜ", score=0.5, created_at=0)
+    out = f.format_active([sig])
+    assert "ETH" in out and "🛑" not in out
 
 
 def _snap(symbol, score, price=1.0):

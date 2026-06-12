@@ -84,9 +84,13 @@ def format_active(signals: List[OpenSignal]) -> str:
         return "Şu an açık (izlenen) sinyal yok."
     lines = ["🎯 *AÇIK SİNYALLER:*", ""]
     for s in signals:
-        lines.append(
-            f"• *{s.symbol}* {s.rating} · giriş `{_fmt_price(s.entry_price)}` · *%{bull_pct(s.score):.0f}*"
+        line = (
+            f"• *{s.symbol}* {s.rating} · giriş `{_fmt_price(s.entry_price)}` "
+            f"· *%{bull_pct(s.score):.0f}*"
         )
+        if s.stop is not None:
+            line += f" · 🛑 `{_fmt_price(s.stop)}`"
+        lines.append(line)
     return "\n".join(lines)
 
 
