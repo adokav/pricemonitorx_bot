@@ -56,7 +56,7 @@ class Config:
     exclude_bases: list[str] = field(default_factory=list)
     alert_score_threshold: float = 0.40
     signal_exit_threshold: float = 0.20
-    scan_interval_min: int = 5
+    scan_interval_min: int = 15
     db_path: str = "crypto_signals.db"
     port: int | None = None
 
@@ -78,7 +78,7 @@ class Config:
             exclude_bases=_get_list("EXCLUDE_BASES", []),
             alert_score_threshold=_get_float("ALERT_SCORE_THRESHOLD", 0.40),
             signal_exit_threshold=_get_float("SIGNAL_EXIT_THRESHOLD", 0.20),
-            scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 5),
+            scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 15),
             db_path=os.getenv("DB_PATH", "crypto_signals.db").strip() or "crypto_signals.db",
             port=port,
         )
