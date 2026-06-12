@@ -20,6 +20,17 @@ def bull_pct(score: float) -> float:
     return (score + 1.0) / 2.0 * 100.0
 
 
+def _bar(pct: float, width: int = 10) -> str:
+    """Yüzdeyi mini ilerleme çubuğuna çevirir (örn. ▰▰▰▰▰▰▱▱▱▱)."""
+    filled = max(0, min(width, round(pct / 100.0 * width)))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def _rating_icon(rating: str) -> str:
+    """Rating metnindeki emojiyi (🟢/🟡/🔴) döndürür."""
+    return rating.split()[0] if rating else "⚪️"
+
+
 def format_analysis(a: Analysis) -> str:
     lines = [
         f"*{a.symbol}* — {a.rating}",
@@ -97,19 +108,32 @@ def format_active(signals: List[OpenSignal]) -> str:
 def format_watchlist(snapshots: List[Snapshot], symbols: List[str]) -> str:
     if not symbols:
         return (
-            "Takip listen boş. `/ekle BTC` ile coin ekleyebilirsin.\n"
-            "Boş listede bot otomatik olarak en yüksek hacimli coinleri tarar."
+            "📋 *Takip listen boş.*\n\n"
+            "`/ekle BTC` ile coin ekleyebilirsin.\n"
+            "Liste boşken bot otomatik olarak en yüksek hacimli coinleri tarar."
         )
     # snapshots zaten skora göre büyükten küçüğe sıralı gelir.
-    lines = ["📋 *TAKİP LİSTEN* (skora göre):", ""]
+    strong = sum(1 for s in snapshots if s.score >= 0.40)
+    weak = sum(1 for s in snapshots if s.score <= -0.40)
+    neutral = len(snapshots) - strong - weak
+
+    header = f"📋 *TAKİP LİSTEN* · {len(symbols)} coin"
+    if snapshots:
+        header += f"\n🟢 {strong}  ·  🟡 {neutral}  ·  🔴 {weak}"
+    lines = [header, ""]
+
     for s in snapshots:
-        lines.append(f"• *{s.symbol}* {s.rating} · *%{bull_pct(s.score):.0f}* · `{_fmt_price(s.price)}`")
+        pct = bull_pct(s.score)
+        lines.append(
+            f"{_rating_icon(s.rating)} *{s.symbol}* — *%{pct:.0f}*\n"
+            f"`{_bar(pct)}`  `{_fmt_price(s.price)}`"
+        )
+
     scored = {s.symbol for s in snapshots}
     pending = [sym for sym in symbols if sym not in scored]
     if pending:
-        if snapshots:
-            lines.append("")
-        lines.append("_Henüz taranmadı (sıradaki taramada skorlanacak):_ " + ", ".join(pending))
+        lines.append("")
+        lines.append("⏳ _Sırada (henüz taranmadı):_ " + ", ".join(pending))
     return "\n".join(lines)
 
 

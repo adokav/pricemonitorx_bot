@@ -26,16 +26,16 @@ def test_watchlist_sorted_high_to_low_and_pending_at_bottom():
     out = f.format_watchlist(snaps, symbols)
     # Sıra: AAA önce, sonra BBB, sonra CCC
     assert out.index("AAA") < out.index("BBB") < out.index("CCC")
-    # Taranmamış coin en altta, "Henüz taranmadı" bölümünde
+    # Taranmamış coin en altta, "Sırada" bölümünde
     assert "ZZZ" in out
-    assert out.index("Henüz taranmadı") < out.index("ZZZ")
+    assert out.index("Sırada") < out.index("ZZZ")
     assert out.index("CCC") < out.index("ZZZ")
 
 
 def test_watchlist_all_pending_when_no_snapshots():
     out = f.format_watchlist([], ["BTC", "ETH"])
     assert "BTC" in out and "ETH" in out
-    assert "Henüz taranmadı" in out
+    assert "Sırada" in out
 
 
 def test_empty_watchlist_message():
