@@ -63,8 +63,14 @@ class Scheduler:
                 log.exception("Tarama sırasında hata")
 
     def universe(self) -> List[str]:
-        """Taranacak evren: tüm watchlist'ler + dinamik top-N birleşimi."""
+        """Taranacak evren: açık sinyaller + watchlist'ler + dinamik top-N.
+
+        Açık sinyaller her zaman dahil edilir; bir coin sinyal verdikten sonra
+        hacmi düşüp top-N'den çıksa bile formasyonu izlenmeye devam eder, böylece
+        "FORMASYON BOZULDU" uyarısı garanti gönderilir.
+        """
         symbols = set(self.storage.all_watched_symbols())
+        symbols |= {s.symbol for s in self.storage.list_open_signals()}
         if self.cfg.dynamic_top_n > 0:
             try:
                 symbols |= set(
