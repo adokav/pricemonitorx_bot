@@ -166,7 +166,10 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     cfg = Config.from_env()  # token yoksa burada fail-fast
-    storage = Storage(cfg.db_path)
+    storage = Storage(cfg.db_path, cfg.database_url or None)
+    log.info(
+        "Veri deposu: %s", "PostgreSQL (kalıcı)" if storage.is_pg else "SQLite (yerel)"
+    )
     binance = BinanceProvider(cfg.quote_asset)
     fng = FearGreedProvider()
     bot = build_bot(cfg, storage, binance, fng)

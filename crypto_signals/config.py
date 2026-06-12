@@ -66,6 +66,7 @@ class Config:
     scan_interval_min: int = 15
     enable_futures_basis: bool = True
     db_path: str = "crypto_signals.db"
+    database_url: str = ""
     port: int | None = None
 
     @classmethod
@@ -89,5 +90,6 @@ class Config:
             scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 15),
             enable_futures_basis=_get_bool("ENABLE_FUTURES_BASIS", True),
             db_path=os.getenv("DB_PATH", "crypto_signals.db").strip() or "crypto_signals.db",
+            database_url=os.getenv("DATABASE_URL", "").strip(),
             port=port,
         )

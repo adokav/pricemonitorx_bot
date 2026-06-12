@@ -1,6 +1,8 @@
 pyTelegramBotAPI==4.22.1
 python-dotenv==1.0.1
 requests==2.32.3
+# Kalıcı veri için PostgreSQL (DATABASE_URL tanımlıysa kullanılır)
+psycopg2-binary==2.9.10
 
 # --- dev / test ---
 pytest==8.3.4
