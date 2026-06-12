@@ -80,7 +80,15 @@ def build_bot(
                 return
             ticker = binance.ticker_for(base)
             change = ticker.change_pct if ticker else None
-            a = analyze(base, candles, change, fng.fetch(), cfg.alert_score_threshold)
+            premium = binance.fetch_premium(base) if cfg.enable_futures_basis else None
+            a = analyze(
+                base,
+                candles,
+                change,
+                fng.fetch(),
+                premium=premium,
+                strong_threshold=cfg.alert_score_threshold,
+            )
             reply(message, formatting.format_analysis(a))
         except Exception:
             log.exception("/sinyal hatası")

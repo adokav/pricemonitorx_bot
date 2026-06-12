@@ -27,6 +27,9 @@ BINANCE_HOSTS = [
     "https://api2.binance.com",
 ]
 BINANCE_BASE = BINANCE_HOSTS[0]
+# Vadeli (USDⓈ-M futures) — premiumIndex tek çağrıda markPrice+indexPrice+funding verir.
+# Bu host bazı ABD bulut IP'lerinden engellenebilir; erişilemezse devre kesici devreye girer.
+BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 FNG_URL = "https://api.alternative.me/fng/"
 
 # Dinamik evrenden elenecek stable/fiat tabanlar.
@@ -57,6 +60,21 @@ class Ticker24h:
     last_price: float
     change_pct: float
     quote_volume: float
+
+
+@dataclass
+class Premium:
+    """Vadeli (futures) prim bilgisi — markPrice vs indexPrice + funding."""
+
+    mark: float  # vadeli işaret fiyatı
+    index: float  # spot endeks fiyatı
+    funding: float  # son funding oranı (oran, yüzde değil)
+
+    @property
+    def basis_pct(self) -> float:
+        if self.index <= 0:
+            return 0.0
+        return (self.mark - self.index) / self.index * 100.0
 
 
 def _request_json(
@@ -91,6 +109,9 @@ class BinanceProvider:
         self._host_idx = 0  # son çalışan host'u hatırla
         self._ticker_cache: Optional[List[Ticker24h]] = None
         self._ticker_cache_ts: float = 0.0
+        # Vadeli prim devre kesici: art arda başarısızlıkta geçici devre dışı bırak
+        self._fut_fail_streak = 0
+        self._fut_cooldown_until = 0.0
 
     def _get(self, path: str, params: Optional[dict] = None):
         """Çalışan ilk host'tan JSON döner; coğrafi engelde sıradakine geçer."""
@@ -177,6 +198,50 @@ class BinanceProvider:
             if t.symbol == pair:
                 return t
         return None
+
+    def fetch_premium(
+        self,
+        base: str,
+        *,
+        fail_threshold: int = 8,
+        cooldown_seconds: float = 1800.0,
+    ) -> Optional[Premium]:
+        """Vadeli prim (markPrice vs indexPrice + funding) döner.
+
+        Coğrafi engel ya da vadeli işlemi olmayan coin durumunda `None` döner —
+        skorlamayı bozmaz. Art arda çok fazla başarısızlık olursa (host engelli
+        gibi) devre kesici devreye girip belirli süre denemez, böylece her
+        taramada boşa istek atılmaz.
+        """
+        if time.monotonic() < self._fut_cooldown_until:
+            return None
+        pair = self.symbol_pair(base)
+        try:
+            data = _request_json(
+                f"{BINANCE_FUTURES_BASE}/fapi/v1/premiumIndex",
+                params={"symbol": pair},
+                retries=1,
+                timeout=8.0,
+            )
+            index = float(data["indexPrice"])
+            if index <= 0:
+                return None
+            self._fut_fail_streak = 0  # başarı → sayacı sıfırla
+            return Premium(
+                mark=float(data["markPrice"]),
+                index=index,
+                funding=float(data.get("lastFundingRate") or 0.0),
+            )
+        except Exception:
+            self._fut_fail_streak += 1
+            if self._fut_fail_streak >= fail_threshold:
+                self._fut_cooldown_until = time.monotonic() + cooldown_seconds
+                self._fut_fail_streak = 0
+                log.warning(
+                    "Vadeli (futures) veri alınamıyor; bu sinyal %.0f dk devre dışı.",
+                    cooldown_seconds / 60.0,
+                )
+            return None
 
 
 class FearGreedProvider:

@@ -1,4 +1,4 @@
-"""Sinyal motoru — 8 sinyalin konfluensi → tek kompozit skor.
+"""Sinyal motoru — 9 sinyalin konfluensi → tek kompozit skor.
 
 Her sinyal `[-1, +1]` puan + ağırlık üretir; ağırlıklı ortalama kompozit skoru
 verir. Tek sinyal değil, **sinyallerin hemfikir olması** belirleyicidir.
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from . import indicators as ind
-from .providers import Candles
+from .providers import Candles, Premium
 
 # Rating etiketleri
 STRONG = "🟢 GÜÇLÜ"
@@ -148,6 +148,23 @@ def fear_greed_signal(value: Optional[int]) -> SignalVerdict:
     return SignalVerdict("Fear & Greed", score, 0.6, f"endeks={value}")
 
 
+def basis_signal(premium: Optional[Premium]) -> SignalVerdict:
+    """Vadeli (futures) fiyat ile spot fiyat farkı (baz/prim).
+
+    Pozitif baz (vadeli > spot) = long baskısı/boğa eğilimi; negatif baz
+    (vadeli < spot, backwardation) = short baskısı/ayı eğilimi. Tipik baz ±0.5%
+    bandındadır, bu yüzden ±0.5% tam puana ölçeklenir. Funding oranı detayda.
+    """
+    name = "Vadeli/Spot Farkı"
+    if premium is None or premium.index <= 0:
+        return SignalVerdict(name, 0.0, 1.0, "veri yok")
+    basis = premium.basis_pct
+    score = _clamp(basis / 0.5)
+    funding_pct = premium.funding * 100.0
+    detail = f"baz {basis:+.3f}% · funding {funding_pct:+.4f}%"
+    return SignalVerdict(name, score, 1.0, detail)
+
+
 # --- Motor -------------------------------------------------------------------
 
 
@@ -164,7 +181,8 @@ def analyze(
     candles: Candles,
     change_pct_24h: Optional[float],
     fear_greed: Optional[int],
-    strong_threshold: float = 0.35,
+    premium: Optional[Premium] = None,
+    strong_threshold: float = 0.40,
 ) -> Analysis:
     closes = candles.closes
     price = closes[-1] if closes else 0.0
@@ -177,6 +195,7 @@ def analyze(
         breakout_signal(candles),
         momentum_signal(change_pct_24h),
         fear_greed_signal(fear_greed),
+        basis_signal(premium),
     ]
     total_weight = sum(v.weight for v in verdicts) or 1.0
     composite = sum(v.score * v.weight for v in verdicts) / total_weight

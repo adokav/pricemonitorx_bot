@@ -116,12 +116,18 @@ class Scheduler:
             return
         ticker = self.binance.ticker_for(symbol)
         change_24h = ticker.change_pct if ticker else None
+        premium = (
+            self.binance.fetch_premium(symbol)
+            if self.cfg.enable_futures_basis
+            else None
+        )
         analysis = analyze(
             symbol,
             candles,
             change_24h,
             fng_value,
-            self.cfg.alert_score_threshold,
+            premium=premium,
+            strong_threshold=self.cfg.alert_score_threshold,
         )
         self.storage.upsert_snapshot(
             symbol, analysis.composite, analysis.rating, analysis.price

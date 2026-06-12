@@ -1,6 +1,6 @@
 """Sinyal motoru (kompozit skor) birim testleri."""
-from crypto_signals.providers import Candles
-from crypto_signals.signals import STRONG, WEAK, analyze, rating_for
+from crypto_signals.providers import Candles, Premium
+from crypto_signals.signals import STRONG, WEAK, analyze, basis_signal, rating_for
 
 
 def _make_candles(closes, highs=None, lows=None, volumes=None):
@@ -59,7 +59,28 @@ def test_composite_in_range():
     a = analyze("FLAT", candles, change_pct_24h=0.0, fear_greed=50)
     assert -1.0 <= a.composite <= 1.0
     assert 0.0 <= a.bull_prob <= 100.0
-    assert len(a.verdicts) == 8
+    assert len(a.verdicts) == 9
+
+
+def test_basis_signal_positive_when_futures_above_spot():
+    # Vadeli > spot → pozitif baz → boğa
+    up = basis_signal(Premium(mark=101.0, index=100.0, funding=0.0001))
+    assert up.score > 0
+    # Vadeli < spot → negatif baz → ayı
+    down = basis_signal(Premium(mark=99.0, index=100.0, funding=-0.0001))
+    assert down.score < 0
+    # Veri yoksa nötr, ama yine de bir oy (ağırlık) taşır
+    none = basis_signal(None)
+    assert none.score == 0.0 and none.weight > 0
+
+
+def test_basis_signal_in_analysis_shifts_score():
+    closes = [100.0 + (i % 5) for i in range(220)]
+    candles = _make_candles(closes)
+    bullish_basis = Premium(mark=100.6, index=100.0, funding=0.0003)
+    a = analyze("FOO", candles, 0.0, 50, premium=bullish_basis)
+    base = analyze("FOO", candles, 0.0, 50, premium=None)
+    assert a.composite > base.composite  # pozitif baz skoru yukarı çeker
 
 
 def test_stop_below_price_when_atr_available():

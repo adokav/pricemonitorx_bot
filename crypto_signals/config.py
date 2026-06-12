@@ -40,6 +40,13 @@ def _get_float(name: str, default: float) -> float:
         raise ConfigError(f"{name} bir ondalık sayı olmalı (alınan: {raw!r})") from exc
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "evet")
+
+
 def _get_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -57,6 +64,7 @@ class Config:
     alert_score_threshold: float = 0.40
     signal_exit_threshold: float = 0.20
     scan_interval_min: int = 15
+    enable_futures_basis: bool = True
     db_path: str = "crypto_signals.db"
     port: int | None = None
 
@@ -79,6 +87,7 @@ class Config:
             alert_score_threshold=_get_float("ALERT_SCORE_THRESHOLD", 0.40),
             signal_exit_threshold=_get_float("SIGNAL_EXIT_THRESHOLD", 0.20),
             scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 15),
+            enable_futures_basis=_get_bool("ENABLE_FUTURES_BASIS", True),
             db_path=os.getenv("DB_PATH", "crypto_signals.db").strip() or "crypto_signals.db",
             port=port,
         )
