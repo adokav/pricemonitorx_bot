@@ -74,6 +74,20 @@ def test_basis_signal_positive_when_futures_above_spot():
     assert none.score == 0.0 and none.weight > 0
 
 
+def test_unavailable_signal_does_not_drag_score():
+    # Vadeli verisi yoksa (engelli), skor; vadeli sinyali HİÇ yokmuş gibi olmalı —
+    # nötr oy olarak 50%'ye doğru ezilmemeli.
+    closes = _trending(100.0, 1.0)
+    candles = _make_candles(closes, volumes=[1000.0 + i * 8 for i in range(len(closes))])
+    with_blocked = analyze("X", candles, 8.0, 15, premium=None)
+    # Aynı analizi elle, vadeli sinyali tamamen çıkararak doğrula
+    blocked_verdict = [v for v in with_blocked.verdicts if v.name == "Vadeli/Spot Farkı"][0]
+    assert blocked_verdict.available is False
+    # Engelli vadeli, kompozit GÜÇLÜ kalmasını engellememeli
+    assert with_blocked.composite > 0.35
+    assert with_blocked.rating == STRONG
+
+
 def test_basis_signal_in_analysis_shifts_score():
     closes = [100.0 + (i % 5) for i in range(220)]
     candles = _make_candles(closes)

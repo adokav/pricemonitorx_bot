@@ -29,6 +29,9 @@ def format_analysis(a: Analysis) -> str:
         "*Sinyaller:*",
     ]
     for v in a.verdicts:
+        if not v.available:
+            lines.append(f"➖ {v.name}: _{v.detail}_ (skora katılmadı)")
+            continue
         icon = "🟢" if v.score > 0.15 else "🔴" if v.score < -0.15 else "⚪️"
         lines.append(f"{icon} {v.name}: *%{bull_pct(v.score):.0f}* — {v.detail}")
     if a.stop_suggestion is not None:

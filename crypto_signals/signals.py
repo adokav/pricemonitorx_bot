@@ -23,6 +23,12 @@ class SignalVerdict:
     score: float  # [-1, +1]
     weight: float
     detail: str
+    available: bool = True  # veri yoksa False → kompozit ortalamaya katılmaz
+
+
+def _na(name: str, weight: float, detail: str = "veri yok") -> "SignalVerdict":
+    """Verisi olmayan sinyal — nötr değil, ortalamadan tamamen çıkarılır."""
+    return SignalVerdict(name, 0.0, weight, detail, available=False)
 
 
 @dataclass
@@ -49,7 +55,7 @@ def trend_signal(closes: List[float]) -> SignalVerdict:
     s50 = ind.sma(closes, 50)
     s200 = ind.sma(closes, 200)
     if s50 is None or s200 is None:
-        return SignalVerdict("Trend (SMA50/200)", 0.0, 1.5, "yetersiz veri")
+        return _na("Trend (SMA50/200)", 1.5, "yetersiz veri")
     score = 0.0
     if price > s50:
         score += 0.5
@@ -67,7 +73,7 @@ def cross_signal(closes: List[float]) -> SignalVerdict:
     s50 = ind.sma_series(closes, 50)
     s200 = ind.sma_series(closes, 200)
     if s50[-1] is None or s200[-1] is None or s50[-2] is None or s200[-2] is None:
-        return SignalVerdict("Golden/Death Cross", 0.0, 1.2, "yetersiz veri")
+        return _na("Golden/Death Cross", 1.2, "yetersiz veri")
     prev_diff = s50[-2] - s200[-2]
     curr_diff = s50[-1] - s200[-1]
     if prev_diff <= 0 < curr_diff:
@@ -81,7 +87,7 @@ def cross_signal(closes: List[float]) -> SignalVerdict:
 def rsi_signal(closes: List[float]) -> SignalVerdict:
     value = ind.rsi(closes, 14)
     if value is None:
-        return SignalVerdict("RSI", 0.0, 1.0, "yetersiz veri")
+        return _na("RSI", 1.0, "yetersiz veri")
     # 50 nötr; <30 aşırı satım (boğa lehine), >70 aşırı alım (ayı lehine)
     score = _clamp((50.0 - value) / 20.0)
     return SignalVerdict("RSI", score, 1.0, f"RSI={value:.1f}")
@@ -92,7 +98,7 @@ def macd_signal(closes: List[float]) -> SignalVerdict:
     h_now = hist[-1]
     h_prev = hist[-2] if len(hist) >= 2 else None
     if h_now is None:
-        return SignalVerdict("MACD", 0.0, 1.2, "yetersiz veri")
+        return _na("MACD", 1.2, "yetersiz veri")
     score = 0.5 if h_now > 0 else -0.5
     if h_prev is not None:
         if h_now > h_prev:
@@ -107,7 +113,7 @@ def volume_signal(candles: Candles) -> SignalVerdict:
     short = ind.sma(vols, 7)
     long = ind.sma(vols, 30)
     if short is None or long is None or long == 0:
-        return SignalVerdict("Hacim trendi", 0.0, 0.8, "yetersiz veri")
+        return _na("Hacim trendi", 0.8, "yetersiz veri")
     ratio = short / long
     score = _clamp((ratio - 1.0) * 2.0)
     return SignalVerdict("Hacim trendi", score, 0.8, f"7g/30g hacim={ratio:.2f}")
@@ -118,7 +124,7 @@ def breakout_signal(candles: Candles, lookback: int = 30) -> SignalVerdict:
     lows = candles.lows
     price = candles.closes[-1]
     if len(highs) < lookback + 1:
-        return SignalVerdict("30g Kırılım", 0.0, 1.2, "yetersiz veri")
+        return _na("30g Kırılım", 1.2, "yetersiz veri")
     window_high = max(highs[-lookback - 1 : -1])
     window_low = min(lows[-lookback - 1 : -1])
     if price >= window_high:
@@ -135,14 +141,14 @@ def breakout_signal(candles: Candles, lookback: int = 30) -> SignalVerdict:
 
 def momentum_signal(change_pct_24h: Optional[float]) -> SignalVerdict:
     if change_pct_24h is None:
-        return SignalVerdict("24s Momentum", 0.0, 1.0, "veri yok")
+        return _na("24s Momentum", 1.0)
     score = _clamp(change_pct_24h / 5.0)
     return SignalVerdict("24s Momentum", score, 1.0, f"24s={change_pct_24h:+.2f}%")
 
 
 def fear_greed_signal(value: Optional[int]) -> SignalVerdict:
     if value is None:
-        return SignalVerdict("Fear & Greed", 0.0, 0.6, "veri yok")
+        return _na("Fear & Greed", 0.6)
     # Kontraryan: aşırı korku (0) boğa lehine, aşırı açgözlülük (100) ayı lehine
     score = _clamp((50.0 - value) / 50.0)
     return SignalVerdict("Fear & Greed", score, 0.6, f"endeks={value}")
@@ -157,7 +163,7 @@ def basis_signal(premium: Optional[Premium]) -> SignalVerdict:
     """
     name = "Vadeli/Spot Farkı"
     if premium is None or premium.index <= 0:
-        return SignalVerdict(name, 0.0, 1.0, "veri yok")
+        return _na(name, 1.0)
     basis = premium.basis_pct
     score = _clamp(basis / 0.5)
     funding_pct = premium.funding * 100.0
@@ -197,8 +203,11 @@ def analyze(
         fear_greed_signal(fear_greed),
         basis_signal(premium),
     ]
-    total_weight = sum(v.weight for v in verdicts) or 1.0
-    composite = sum(v.score * v.weight for v in verdicts) / total_weight
+    # Yalnızca verisi olan sinyaller ortalamaya girer; "veri yok" olanlar
+    # nötr oy olarak skoru 50%'ye doğru ezmesin diye tamamen dışlanır.
+    active = [v for v in verdicts if v.available]
+    total_weight = sum(v.weight for v in active) or 1.0
+    composite = sum(v.score * v.weight for v in active) / total_weight
     composite = _clamp(composite)
     bull_prob = (composite + 1.0) / 2.0 * 100.0
 
