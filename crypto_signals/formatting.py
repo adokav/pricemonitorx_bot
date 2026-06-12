@@ -15,17 +15,22 @@ def _fmt_price(price: float) -> str:
     return f"{price:.8f}".rstrip("0").rstrip(".")
 
 
+def bull_pct(score: float) -> float:
+    """Kompozit skoru (-1..+1) boğa olasılığı yüzdesine (0-100) çevirir."""
+    return (score + 1.0) / 2.0 * 100.0
+
+
 def format_analysis(a: Analysis) -> str:
     lines = [
         f"*{a.symbol}* — {a.rating}",
         f"Fiyat: `{_fmt_price(a.price)}`",
-        f"Boğa olasılığı: *%{a.bull_prob:.0f}*  (skor `{a.composite:+.2f}`)",
+        f"Boğa olasılığı: *%{a.bull_prob:.0f}*",
         "",
         "*Sinyaller:*",
     ]
     for v in a.verdicts:
         icon = "🟢" if v.score > 0.15 else "🔴" if v.score < -0.15 else "⚪️"
-        lines.append(f"{icon} {v.name}: `{v.score:+.2f}` — {v.detail}")
+        lines.append(f"{icon} {v.name}: *%{bull_pct(v.score):.0f}* — {v.detail}")
     if a.stop_suggestion is not None:
         lines += ["", f"🛑 Stop önerisi (2×ATR): `{_fmt_price(a.stop_suggestion)}`"]
     lines += ["", "_Yatırım tavsiyesi değildir. DYOR._"]
@@ -36,7 +41,7 @@ def format_new_signal(a: Analysis) -> str:
     return (
         f"🚨 *YENİ SİNYAL* — *{a.symbol}*\n"
         f"{a.rating}  ·  boğa olasılığı *%{a.bull_prob:.0f}*\n"
-        f"Giriş fiyatı: `{_fmt_price(a.price)}`  (skor `{a.composite:+.2f}`)\n"
+        f"Giriş fiyatı: `{_fmt_price(a.price)}`\n"
         + (
             f"🛑 Stop (2×ATR): `{_fmt_price(a.stop_suggestion)}`\n"
             if a.stop_suggestion is not None
@@ -66,7 +71,7 @@ def format_radar(snapshots: List[Snapshot]) -> str:
     lines = ["📡 *RADAR* — en güçlü boğa sinyalleri:", ""]
     for i, s in enumerate(snapshots, 1):
         lines.append(
-            f"{i}. *{s.symbol}* {s.rating} · skor `{s.score:+.2f}` · `{_fmt_price(s.price)}`"
+            f"{i}. *{s.symbol}* {s.rating} · *%{bull_pct(s.score):.0f}* · `{_fmt_price(s.price)}`"
         )
     return "\n".join(lines)
 
@@ -77,7 +82,7 @@ def format_active(signals: List[OpenSignal]) -> str:
     lines = ["🎯 *AÇIK SİNYALLER:*", ""]
     for s in signals:
         lines.append(
-            f"• *{s.symbol}* {s.rating} · giriş `{_fmt_price(s.entry_price)}` · skor `{s.score:+.2f}`"
+            f"• *{s.symbol}* {s.rating} · giriş `{_fmt_price(s.entry_price)}` · *%{bull_pct(s.score):.0f}*"
         )
     return "\n".join(lines)
 
@@ -92,7 +97,7 @@ def format_watchlist(snapshots: List[Snapshot], symbols: List[str]) -> str:
         return "Takip listen: " + ", ".join(symbols) + "\n(Henüz skor yok, tarama bekleniyor.)"
     lines = ["📋 *TAKİP LİSTEN* (skora göre):", ""]
     for s in snapshots:
-        lines.append(f"• *{s.symbol}* {s.rating} · skor `{s.score:+.2f}` · `{_fmt_price(s.price)}`")
+        lines.append(f"• *{s.symbol}* {s.rating} · *%{bull_pct(s.score):.0f}* · `{_fmt_price(s.price)}`")
     return "\n".join(lines)
 
 

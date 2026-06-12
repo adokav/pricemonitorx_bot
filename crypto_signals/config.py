@@ -54,7 +54,7 @@ class Config:
     dynamic_top_n: int = 150
     default_symbols: list[str] = field(default_factory=lambda: ["BTC", "ETH", "SOL"])
     exclude_bases: list[str] = field(default_factory=list)
-    alert_score_threshold: float = 0.35
+    alert_score_threshold: float = 0.40
     signal_exit_threshold: float = 0.15
     scan_interval_min: int = 30
     db_path: str = "crypto_signals.db"
@@ -76,7 +76,7 @@ class Config:
             dynamic_top_n=_get_int("DYNAMIC_TOP_N", 150),
             default_symbols=_get_list("DEFAULT_SYMBOLS", ["BTC", "ETH", "SOL"]),
             exclude_bases=_get_list("EXCLUDE_BASES", []),
-            alert_score_threshold=_get_float("ALERT_SCORE_THRESHOLD", 0.35),
+            alert_score_threshold=_get_float("ALERT_SCORE_THRESHOLD", 0.40),
             signal_exit_threshold=_get_float("SIGNAL_EXIT_THRESHOLD", 0.15),
             scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 30),
             db_path=os.getenv("DB_PATH", "crypto_signals.db").strip() or "crypto_signals.db",
