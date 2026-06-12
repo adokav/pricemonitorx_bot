@@ -96,11 +96,16 @@ def format_watchlist(snapshots: List[Snapshot], symbols: List[str]) -> str:
             "Takip listen boş. `/ekle BTC` ile coin ekleyebilirsin.\n"
             "Boş listede bot otomatik olarak en yüksek hacimli coinleri tarar."
         )
-    if not snapshots:
-        return "Takip listen: " + ", ".join(symbols) + "\n(Henüz skor yok, tarama bekleniyor.)"
+    # snapshots zaten skora göre büyükten küçüğe sıralı gelir.
     lines = ["📋 *TAKİP LİSTEN* (skora göre):", ""]
     for s in snapshots:
         lines.append(f"• *{s.symbol}* {s.rating} · *%{bull_pct(s.score):.0f}* · `{_fmt_price(s.price)}`")
+    scored = {s.symbol for s in snapshots}
+    pending = [sym for sym in symbols if sym not in scored]
+    if pending:
+        if snapshots:
+            lines.append("")
+        lines.append("_Henüz taranmadı (sıradaki taramada skorlanacak):_ " + ", ".join(pending))
     return "\n".join(lines)
 
 
