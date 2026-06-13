@@ -66,6 +66,7 @@ pytest                        # testler
 | `/liste` | Çekirdek takip listen (skorlarıyla, büyükten küçüğe) |
 | `/check` | İlk `CHECK_TOP_N` coinde fırsat tarar; eşiği geçenleri **➕ Radara ekle** butonuyla sunar |
 | `/radar` | Radarına eklediğin fırsatlar |
+| `/degerlendir PEPE` | Almadan önce soğuk ikinci görüş + checklist → ⛔/⏳/✅ (anti-FOMO) |
 | `/sinyal BTC` | Tek coin anlık sinyal raporu |
 | `/ekle SOL` · `/sil SOL` | Çekirdek listeyi düzenle |
 | `/aktif` | Açık (izlenen) sinyaller + 2×ATR stop |

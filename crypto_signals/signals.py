@@ -384,3 +384,141 @@ def analyze(
         regime=regime,
         notes=notes,
     )
+
+
+# --- Anti-FOMO değerlendirme (rasyonel çapa) --------------------------------
+
+AVOID = "AVOID"
+WAIT = "WAIT"
+CONSIDER = "CONSIDER"
+
+_DISCIPLINE_NOTES = {
+    AVOID: "Bu kurulumda sana edge yok. Para kaybetmemenin en iyi yolu işlem yapmamaktır.",
+    WAIT: "Acele etme. Kötü giriş, iyi coini bile kaybettirir; geri çekilme/teyit bekle.",
+    CONSIDER: "Koşullar uygun ama boyutu küçük tut, stopuna sadık kal, plan dışı ekleme yapma.",
+}
+
+
+@dataclass
+class Check:
+    status: str  # "ok" | "warn" | "bad"
+    label: str
+
+
+@dataclass
+class Evaluation:
+    verdict: str  # AVOID | WAIT | CONSIDER
+    headline: str
+    checks: List[Check] = field(default_factory=list)
+    rr: Optional[float] = None
+    target: Optional[float] = None
+    note: str = ""
+
+
+def evaluate(analysis: Analysis, candles: Candles, ctx: Context) -> Evaluation:
+    """Dürtüsel alım öncesi soğuk ikinci görüş + net karar.
+
+    Varsayılan eğilim ihtiyatlıdır: net avantaj yoksa 'BEKLE' der.
+    """
+    price = analysis.price
+    closes = candles.closes
+    checks: List[Check] = []
+    flags = set()
+
+    # Likidite
+    if ctx.quote_volume is not None and ctx.min_quote_volume > 0:
+        ok = ctx.quote_volume >= ctx.min_quote_volume
+        checks.append(Check("ok" if ok else "bad", f"Likidite ${ctx.quote_volume / 1e6:.0f}M"))
+        if not ok:
+            flags.add("liq")
+
+    # Aşırı uzama (tepeden alma)
+    s20 = ind.sma(closes, 20)
+    atr = ind.atr(candles.highs, candles.lows, closes, 14)
+    if s20 is not None and atr:
+        ext = (price - s20) / atr
+        if ext > 2.5:
+            checks.append(Check("bad", f"Aşırı uzama {ext:.1f}×ATR (tepeye yakın)"))
+            flags.add("ext")
+        else:
+            checks.append(Check("ok", f"Uzama normal ({ext:+.1f}×ATR)"))
+
+    # 24s pump (kovalama)
+    ch = ctx.change_pct_24h
+    if ch is not None:
+        if ch > 25:
+            checks.append(Check("bad", f"24s +%{ch:.0f} (pompalanmış, kovalama)"))
+            flags.add("pump")
+        elif ch < -15:
+            checks.append(Check("warn", f"24s %{ch:.0f} (sert düşüş)"))
+        else:
+            checks.append(Check("ok", f"24s %{ch:+.0f} (normal)"))
+
+    # BTC rejimi
+    if ctx.btc_regime is not None:
+        if ctx.btc_regime <= -0.5:
+            checks.append(Check("bad", f"BTC rejimi {ctx.btc_regime:+.2f} (risk-off)"))
+            flags.add("btc")
+        elif ctx.btc_regime < 0:
+            checks.append(Check("warn", f"BTC rejimi {ctx.btc_regime:+.2f} (zayıf)"))
+        else:
+            checks.append(Check("ok", f"BTC rejimi {ctx.btc_regime:+.2f} (uygun)"))
+
+    # Makro (SMA200)
+    s200 = ind.sma(closes, 200)
+    if s200 is not None:
+        if price < s200:
+            checks.append(Check("bad", "Fiyat SMA200 altında (makro ayı)"))
+            flags.add("macro")
+        else:
+            checks.append(Check("ok", "SMA200 üstünde (makro yukarı)"))
+
+    # Sinyal gücü
+    if analysis.composite < 0 or analysis.rating == WEAK:
+        checks.append(Check("bad", f"Sinyal zayıf (%{analysis.bull_prob:.0f})"))
+        flags.add("weak")
+    elif analysis.rating == STRONG:
+        checks.append(Check("ok", f"Sinyal güçlü (%{analysis.bull_prob:.0f})"))
+    else:
+        checks.append(Check("warn", f"Sinyal nötr (%{analysis.bull_prob:.0f})"))
+        flags.add("neutral")
+
+    # Risk/Ödül
+    rr = None
+    target = None
+    if analysis.stop_suggestion is not None and analysis.stop_suggestion < price:
+        risk = price - analysis.stop_suggestion
+        highs = candles.highs
+        if len(highs) >= 61:
+            resistance = max(highs[-61:-1])
+        elif len(highs) >= 2:
+            resistance = max(highs[:-1])
+        else:
+            resistance = price
+        target = resistance if resistance > price * 1.01 else price + 2.0 * risk
+        reward = target - price
+        rr = reward / risk if risk > 0 else None
+        if rr is not None:
+            if rr < 1.5:
+                checks.append(Check("bad", f"R:R {rr:.1f} (ödül < risk)"))
+                flags.add("rr")
+            else:
+                checks.append(Check("ok", f"R:R {rr:.1f}"))
+
+    # --- Karar (ihtiyatlı öncelik sırası) ---
+    if "liq" in flags:
+        verdict, head = AVOID, "Düşük likidite — manipülasyon yemi, uzak dur"
+    elif "weak" in flags:
+        verdict, head = AVOID, "Sinyal zaten zayıf — almak için sebep yok"
+    elif "pump" in flags or "ext" in flags:
+        verdict, head = WAIT, "Pompalanmış/aşırı uzamış — kovalama, geri çekilmeyi bekle"
+    elif "macro" in flags or "btc" in flags:
+        verdict, head = WAIT, "Makro/BTC uygun değil — piyasa toparlayınca bak"
+    elif "rr" in flags:
+        verdict, head = WAIT, "Risk/ödül kötü — daha iyi bir giriş bekle"
+    elif analysis.rating == STRONG and not flags:
+        verdict, head = CONSIDER, "Koşullar uygun — kurallarına göre değerlendirilebilir"
+    else:
+        verdict, head = WAIT, "Net avantaj yok — acele etme, nakit de bir pozisyondur"
+
+    return Evaluation(verdict, head, checks, rr, target, _DISCIPLINE_NOTES[verdict])

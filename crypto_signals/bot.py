@@ -19,7 +19,7 @@ from . import formatting
 from .config import Config
 from .providers import BinanceProvider, FearGreedProvider
 from .scheduler import Scheduler
-from .signals import Context, analyze, market_regime_score
+from .signals import Context, analyze, evaluate, market_regime_score
 from .storage import Storage
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ WELCOME = (
     "• `/liste` — çekirdek takip listen (skorlarıyla)\n"
     "• `/check` — ilk 100 coinde fırsat tara, radara ekle\n"
     "• `/radar` — radarındaki fırsatlar\n"
+    "• `/degerlendir PEPE` — almadan önce soğuk ikinci görüş (anti-FOMO)\n"
     "• `/sinyal BTC` — tek coin anlık rapor\n"
     "• `/ekle SOL` · `/sil SOL` — listeyi düzenle\n"
     "• `/korku` — Korku & Açgözlülük endeksi\n"
@@ -71,7 +72,8 @@ def build_bot(
         except Exception:
             return None
 
-    def _analyze(base: str, btc_regime=_COMPUTE):
+    def _build(base: str, btc_regime=_COMPUTE):
+        """(analysis, candles, ctx) döner; veri yetersizse None."""
         candles = binance.fetch_candles(base, limit=250)
         if len(candles) < 60:
             return None
@@ -93,7 +95,12 @@ def build_bot(
             quote_volume=quote_volume,
             min_quote_volume=cfg.min_quote_volume,
         )
-        return analyze(base, candles, ctx, strong_threshold=cfg.alert_score_threshold)
+        a = analyze(base, candles, ctx, strong_threshold=cfg.alert_score_threshold)
+        return a, candles, ctx
+
+    def _analyze(base: str, btc_regime=_COMPUTE):
+        built = _build(base, btc_regime)
+        return built[0] if built else None
 
     @bot.message_handler(commands=["start", "yardim", "help"])
     def on_start(message):
@@ -120,6 +127,25 @@ def build_bot(
         except Exception:
             log.exception("/sinyal hatası")
             reply(message, f"`{base}` analiz edilemedi. Sembolü kontrol edip tekrar dene.")
+
+    @bot.message_handler(commands=["degerlendir", "sor"])
+    def on_evaluate(message):
+        storage.add_subscriber(message.chat.id)
+        base = _arg(message)
+        if not base:
+            reply(message, "Kullanım: `/degerlendir PEPE` — almayı düşündüğün coini sor, soğuk bir görüş alırım.")
+            return
+        try:
+            built = _build(base)
+            if built is None:
+                reply(message, f"`{base}` için yeterli veri yok.")
+                return
+            a, candles, ctx = built
+            ev = evaluate(a, candles, ctx)
+            reply(message, formatting.format_evaluation(base, a, ev))
+        except Exception:
+            log.exception("/degerlendir hatası")
+            reply(message, f"`{base}` değerlendirilemedi. Sembolü kontrol edip tekrar dene.")
 
     @bot.message_handler(commands=["radar"])
     def on_radar(message):

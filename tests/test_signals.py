@@ -1,11 +1,15 @@
 """Sinyal motoru (kompozit skor) birim testleri."""
 from crypto_signals.providers import Candles, Premium
 from crypto_signals.signals import (
+    AVOID,
+    CONSIDER,
     STRONG,
+    WAIT,
     WEAK,
     Context,
     analyze,
     basis_signal,
+    evaluate,
     market_regime_score,
     rating_for,
 )
@@ -128,3 +132,32 @@ def test_market_regime_score_direction():
     down = market_regime_score([320.0 - i for i in range(220)])
     assert up is not None and up > 0
     assert down is not None and down < 0
+
+
+def test_evaluate_pumped_coin_says_wait():
+    closes = _trending(100.0, 1.0)
+    candles = _make_candles(closes, volumes=[1000.0 + i * 8 for i in range(len(closes))])
+    ctx = Context(change_pct_24h=40.0, fear_greed=80, btc_regime=0.4, quote_volume=1e9, min_quote_volume=3e7)
+    a = analyze("PUMP", candles, ctx)
+    ev = evaluate(a, candles, ctx)
+    assert ev.verdict == WAIT
+    assert any("pompalan" in c.label.lower() or "kovalama" in c.label.lower() for c in ev.checks)
+
+
+def test_evaluate_low_liquidity_says_avoid():
+    closes = _trending(100.0, 1.0)
+    candles = _make_candles(closes, volumes=[1000.0 + i * 8 for i in range(len(closes))])
+    ctx = Context(change_pct_24h=5.0, fear_greed=40, btc_regime=0.4, quote_volume=1e5, min_quote_volume=3e7)
+    a = analyze("THIN", candles, ctx)
+    ev = evaluate(a, candles, ctx)
+    assert ev.verdict == AVOID
+
+
+def test_evaluate_clean_strong_can_be_considered():
+    closes = _trending(100.0, 1.0)
+    candles = _make_candles(closes, volumes=[1000.0 + i * 8 for i in range(len(closes))])
+    ctx = Context(change_pct_24h=4.0, fear_greed=40, btc_regime=0.5, quote_volume=1e9, min_quote_volume=3e7)
+    a = analyze("CLEAN", candles, ctx)
+    ev = evaluate(a, candles, ctx)
+    assert ev.verdict in (CONSIDER, WAIT)  # uygun koşullarda en azından AVOID değil
+    assert ev.verdict != AVOID

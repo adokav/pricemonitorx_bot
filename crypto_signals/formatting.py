@@ -139,6 +139,37 @@ def format_check(candidates) -> str:
     return "\n".join(lines)
 
 
+_VERDICT_LABEL = {
+    "AVOID": "⛔ UZAK DUR",
+    "WAIT": "⏳ BEKLE",
+    "CONSIDER": "✅ DEĞERLENDİRİLEBİLİR",
+}
+_CHECK_ICON = {"ok": "✅", "warn": "⚠️", "bad": "⛔"}
+
+
+def format_evaluation(symbol: str, a: Analysis, ev) -> str:
+    lines = [
+        f"🧮 *DEĞERLENDİRME* — *{symbol}*",
+        f"Karar: *{_VERDICT_LABEL.get(ev.verdict, ev.verdict)}* — {ev.headline}",
+        f"Fiyat `{_fmt_price(a.price)}` · {_REGIME_LABEL.get(a.regime, a.regime)} · skor *%{a.bull_prob:.0f}*",
+        "",
+        "*Soğuk gerçekler:*",
+    ]
+    for c in ev.checks:
+        lines.append(f"{_CHECK_ICON.get(c.status, '•')} {c.label}")
+    risk_line = []
+    if a.stop_suggestion is not None:
+        risk_line.append(f"🛑 Stop `{_fmt_price(a.stop_suggestion)}`")
+    if ev.target is not None:
+        risk_line.append(f"🎯 Hedef `{_fmt_price(ev.target)}`")
+    if ev.rr is not None:
+        risk_line.append(f"R:R `{ev.rr:.1f}`")
+    if risk_line:
+        lines += ["", " · ".join(risk_line)]
+    lines += ["", f"🧭 _{ev.note}_", "_Yatırım tavsiyesi değildir. DYOR._"]
+    return "\n".join(lines)
+
+
 def format_stop_hit(signal: OpenSignal, current_price: float) -> str:
     if signal.entry_price:
         change = (current_price - signal.entry_price) / signal.entry_price * 100.0
