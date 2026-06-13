@@ -19,7 +19,7 @@ from . import formatting
 from .config import Config
 from .providers import BinanceProvider, FearGreedProvider
 from .scheduler import Scheduler
-from .signals import analyze
+from .signals import Context, analyze, market_regime_score
 from .storage import Storage
 
 log = logging.getLogger(__name__)
@@ -63,21 +63,37 @@ def build_bot(
     def reply(message, text: str) -> None:
         bot.send_message(message.chat.id, text, reply_markup=_keyboard())
 
-    def _analyze(base: str):
+    _COMPUTE = object()  # _analyze için "btc rejimini sen hesapla" işareti
+
+    def _btc_regime():
+        try:
+            return market_regime_score(binance.fetch_candles("BTC", limit=250).closes)
+        except Exception:
+            return None
+
+    def _analyze(base: str, btc_regime=_COMPUTE):
         candles = binance.fetch_candles(base, limit=250)
         if len(candles) < 60:
             return None
         ticker = binance.ticker_for(base)
         change = ticker.change_pct if ticker else None
+        quote_volume = ticker.quote_volume if ticker else None
         premium = binance.fetch_premium(base) if cfg.enable_futures_basis else None
-        return analyze(
-            base,
-            candles,
-            change,
-            fng.fetch(),
+        try:
+            weekly = binance.fetch_candles(base, interval="1w", limit=60).closes
+        except Exception:
+            weekly = None
+        br = _btc_regime() if btc_regime is _COMPUTE else btc_regime
+        ctx = Context(
+            change_pct_24h=change,
+            fear_greed=fng.fetch(),
             premium=premium,
-            strong_threshold=cfg.alert_score_threshold,
+            weekly_closes=weekly,
+            btc_regime=None if base == "BTC" else br,
+            quote_volume=quote_volume,
+            min_quote_volume=cfg.min_quote_volume,
         )
+        return analyze(base, candles, ctx, strong_threshold=cfg.alert_score_threshold)
 
     @bot.message_handler(commands=["start", "yardim", "help"])
     def on_start(message):
@@ -124,12 +140,13 @@ def build_bot(
             log.exception("/check top listesi alınamadı")
             reply(message, "Tarama listesi alınamadı, birazdan tekrar dene.")
             return
+        br = _btc_regime()  # tüm tarama için bir kez
         candidates = []
         for sym in top:
             if sym in tracked:
                 continue
             try:
-                a = _analyze(sym)
+                a = _analyze(sym, btc_regime=br)
                 if a is not None and a.composite >= cfg.check_score_threshold:
                     candidates.append(a)
             except Exception:

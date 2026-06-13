@@ -31,14 +31,22 @@ def _rating_icon(rating: str) -> str:
     return rating.split()[0] if rating else "⚪️"
 
 
+_REGIME_LABEL = {
+    "TREND_UP": "📈 Yükseliş trendi",
+    "TREND_DOWN": "📉 Düşüş trendi",
+    "RANGE": "↔️ Yatay/sıkışma",
+}
+
+
 def format_analysis(a: Analysis) -> str:
     lines = [
         f"*{a.symbol}* — {a.rating}",
-        f"Fiyat: `{_fmt_price(a.price)}`",
+        f"Fiyat: `{_fmt_price(a.price)}`  ·  {_REGIME_LABEL.get(a.regime, a.regime)}",
         f"Boğa olasılığı: *%{a.bull_prob:.0f}*",
-        "",
-        "*Sinyaller:*",
     ]
+    for note in a.notes:
+        lines.append(note)
+    lines += ["", "*Sinyaller:*"]
     for v in a.verdicts:
         if not v.available:
             lines.append(f"➖ {v.name}: _{v.detail}_ (skora katılmadı)")

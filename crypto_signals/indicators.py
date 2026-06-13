@@ -145,3 +145,54 @@ def last(series: Series) -> Optional[float]:
         if v is not None:
             return v
     return None
+
+
+def adx(
+    highs: List[Number],
+    lows: List[Number],
+    closes: List[Number],
+    period: int = 14,
+) -> Optional[float]:
+    """Wilder ADX — trend gücü (0-100). >25 trend, <20 yatay kabul edilir."""
+    n = len(closes)
+    if n < 2 * period + 1:
+        return None
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    tr = [0.0] * n
+    for i in range(1, n):
+        up = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
+        plus_dm[i] = up if (up > down and up > 0) else 0.0
+        minus_dm[i] = down if (down > up and down > 0) else 0.0
+        tr[i] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+
+    def _wilder(arr: List[float]) -> List[Optional[float]]:
+        out: List[Optional[float]] = [None] * n
+        running = sum(arr[1 : period + 1])
+        out[period] = running
+        for i in range(period + 1, n):
+            running = running - running / period + arr[i]
+            out[i] = running
+        return out
+
+    str_ = _wilder(tr)
+    spdm = _wilder(plus_dm)
+    smdm = _wilder(minus_dm)
+    dx_vals: List[float] = []
+    for i in range(period, n):
+        if str_[i] and str_[i] != 0:
+            pdi = 100.0 * (spdm[i] or 0.0) / str_[i]
+            mdi = 100.0 * (smdm[i] or 0.0) / str_[i]
+            denom = pdi + mdi
+            dx_vals.append(100.0 * abs(pdi - mdi) / denom if denom else 0.0)
+    if len(dx_vals) < period:
+        return None
+    adx_val = sum(dx_vals[:period]) / period
+    for d in dx_vals[period:]:
+        adx_val = (adx_val * (period - 1) + d) / period
+    return adx_val

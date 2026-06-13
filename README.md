@@ -11,9 +11,14 @@ alarm veren, üretime hazır Python uygulaması.
 ---
 
 ## ✨ Özellikler
-- **9 sinyalin konfluensi:** Trend (SMA50/200), Golden/Death Cross, RSI, MACD,
-  Hacim trendi, 30g Kırılım (destek/direnç), 24s Momentum, Fear & Greed,
-  Vadeli/Spot Farkı (futures baz + funding).
+- **12 sinyalin konfluensi:** Trend (SMA50/200), Golden/Death Cross, RSI
+  (rejim-bağlamlı), MACD, Hacim trendi, 30g Kırılım (hacim-teyitli), 24s
+  Momentum, Fear & Greed, Vadeli/Spot Farkı, **Haftalık Trend**, **Piyasa (BTC)
+  Rejimi**, **Aşırı Uzama** (anti-kovalama).
+- **Rejim-uyarlı:** ADX ile trend/yatay tespiti → ağırlıklar uyarlanır; trendde
+  RSI aşırı-alımı ayı sayılmaz (momentum onayı).
+- **Koruma katmanı:** düşük likidite, BTC ayı rejimi ve SMA200 altı durumlarda
+  long sinyali zayıflatılır/GÜÇLÜ verilmez (manipülasyon & makro filtresi).
 - **Tek skor:** her sinyal `[-1,+1]` puan + ağırlık → ağırlıklı ortalama →
   `🟢 GÜÇLÜ / 🟡 NÖTR / 🔴 ZAYIF` + boğa olasılığı %. Tek sinyal değil,
   **sinyallerin hemfikir olması** belirleyici.
@@ -86,6 +91,7 @@ pytest                        # testler
 | `DEFAULT_SYMBOLS` | ➖ | `BTC,ETH,SOL,AVAX,LINK,ONDO,WLD,RENDER,LDO,POPCAT,WIF` | `/start`'ta kurulan çekirdek liste |
 | `CHECK_TOP_N` | ➖ | `100` | `/check`'te hacme göre taranacak coin sayısı |
 | `CHECK_SCORE_THRESHOLD` | ➖ | `0.50` | `/check`'te radara aday olma eşiği |
+| `MIN_QUOTE_VOLUME` | ➖ | `30000000` | Likidite tabanı (24s USDT hacmi); altı manipülasyona açık sayılır |
 | `EXCLUDE_BASES` | ➖ | — | `/check` evreninden hariç tut (ör. `PEPE,SHIB`) |
 | `ALERT_SCORE_THRESHOLD` | ➖ | `0.40` | Yeni sinyal (giriş) eşiği — 🟢 GÜÇLÜ sınırı |
 | `SIGNAL_EXIT_THRESHOLD` | ➖ | `0.20` | Formasyon bozuldu (çıkış) eşiği — histerezis |

@@ -14,7 +14,7 @@ from typing import Callable, List, Optional
 from . import formatting
 from .config import Config
 from .providers import BinanceProvider, FearGreedProvider
-from .signals import WEAK, analyze
+from .signals import WEAK, Context, analyze, market_regime_score
 
 log = logging.getLogger(__name__)
 
@@ -82,37 +82,57 @@ class Scheduler:
             | set(self.storage.subscribers_radar(symbol))
         )
 
+    def _btc_regime(self) -> Optional[float]:
+        try:
+            btc = self.binance.fetch_candles("BTC", limit=250)
+            return market_regime_score(btc.closes)
+        except Exception:
+            log.warning("BTC rejimi hesaplanamadı", exc_info=True)
+            return None
+
     def scan_once(self) -> None:
         symbols = self.universe()
         if not symbols:
             return
         fng_value = self.fng.fetch()
-        log.info("Tarama: %s sembol", len(symbols))
+        btc_regime = self._btc_regime()  # tüm tarama için bir kez
+        log.info("Tarama: %s sembol (BTC rejim %s)", len(symbols), btc_regime)
         for symbol in symbols:
             try:
-                self._scan_symbol(symbol, fng_value)
+                self._scan_symbol(symbol, fng_value, btc_regime)
             except Exception:
                 log.warning("Sembol taranamadı: %s", symbol, exc_info=True)
             time.sleep(0.15)  # hafif throttle — oran limiti
 
-    def _scan_symbol(self, symbol: str, fng_value: Optional[int]) -> None:
+    def _scan_symbol(
+        self, symbol: str, fng_value: Optional[int], btc_regime: Optional[float]
+    ) -> None:
         candles = self.binance.fetch_candles(symbol, limit=250)
         if len(candles) < 60:
             return
         ticker = self.binance.ticker_for(symbol)
         change_24h = ticker.change_pct if ticker else None
+        quote_volume = ticker.quote_volume if ticker else None
         premium = (
             self.binance.fetch_premium(symbol)
             if self.cfg.enable_futures_basis
             else None
         )
-        analysis = analyze(
-            symbol,
-            candles,
-            change_24h,
-            fng_value,
+        try:
+            weekly = self.binance.fetch_candles(symbol, interval="1w", limit=60).closes
+        except Exception:
+            weekly = None
+        ctx = Context(
+            change_pct_24h=change_24h,
+            fear_greed=fng_value,
             premium=premium,
-            strong_threshold=self.cfg.alert_score_threshold,
+            weekly_closes=weekly,
+            btc_regime=None if symbol == "BTC" else btc_regime,
+            quote_volume=quote_volume,
+            min_quote_volume=self.cfg.min_quote_volume,
+        )
+        analysis = analyze(
+            symbol, candles, ctx, strong_threshold=self.cfg.alert_score_threshold
         )
         self.storage.upsert_snapshot(
             symbol, analysis.composite, analysis.rating, analysis.price
