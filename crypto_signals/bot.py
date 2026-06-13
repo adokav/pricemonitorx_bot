@@ -349,21 +349,22 @@ def main() -> None:
         pass
 
     log.info("Bot polling başlıyor…")
-    # NOT: skip_pending=True KULLANMIYORUZ. Render zero-downtime deploy'da eski
-    # instance birkaç saniye hâlâ polling yaparken Telegram 409 (Conflict) döner.
-    # skip_pending'in çağırdığı ön getUpdates bu hatayı koruma döngüsünden ÖNCE,
-    # korumasız fırlatır → süreç çöker → restart döngüsü. infinity_polling'in
-    # kendi döngüsü 409'u yakalayıp yeniden dener; eski instance ölünce toparlanır.
+    # Deploy geçişlerinde (eski+yeni instance birkaç sn üst üste binince) Telegram
+    # 409 döner. Bu beklenen ve geçici; telebot'un iç logger'ı tam traceback
+    # bastığı için onu kısıyoruz — dayanıklı döngü zaten yakalayıp yeniden deniyor.
+    logging.getLogger("TeleBot").setLevel(logging.CRITICAL)
+    # NOT: skip_pending=True KULLANMIYORUZ (eski instance 409'u süreci çökertmesin).
     while True:
         try:
             bot.infinity_polling(
                 timeout=30,
                 long_polling_timeout=30,
-                logger_level=logging.WARNING,
+                logger_level=logging.CRITICAL,
             )
             break  # temiz çıkış (stop çağrıldıysa)
-        except Exception:
-            log.exception("Polling beklenmedik şekilde durdu; 5 sn sonra tekrar")
+        except Exception as exc:
+            # Tam traceback yerine tek satır — 409 gibi geçici hatalarda spam olmasın
+            log.warning("Polling kesildi (%s), 5 sn sonra tekrar deneniyor", type(exc).__name__)
             time.sleep(5)
 
 
