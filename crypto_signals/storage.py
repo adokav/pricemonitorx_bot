@@ -109,6 +109,9 @@ class Storage:
             f"CREATE TABLE IF NOT EXISTS watchlist ("
             f"chat_id {int_type} NOT NULL, symbol TEXT NOT NULL, "
             f"UNIQUE(chat_id, symbol))",
+            f"CREATE TABLE IF NOT EXISTS radar ("
+            f"chat_id {int_type} NOT NULL, symbol TEXT NOT NULL, "
+            f"UNIQUE(chat_id, symbol))",
             f"CREATE TABLE IF NOT EXISTS open_signals ("
             f"symbol TEXT PRIMARY KEY, entry_price {real} NOT NULL, "
             f"rating TEXT NOT NULL, score {real} NOT NULL, created_at {real} NOT NULL, "
@@ -186,6 +189,41 @@ class Storage:
     def subscribers_watching(self, symbol: str) -> List[int]:
         rows, _ = self._exec(
             "SELECT chat_id FROM watchlist WHERE symbol=?",
+            (symbol.upper(),),
+            fetch="all",
+        )
+        return [r["chat_id"] for r in rows]
+
+    # --- radar (küratörlü fırsat listesi) ---------------------------------
+    def add_radar(self, chat_id: int, symbol: str) -> None:
+        self._exec(
+            "INSERT INTO radar(chat_id, symbol) VALUES(?, ?) "
+            "ON CONFLICT(chat_id, symbol) DO NOTHING",
+            (chat_id, symbol.upper()),
+        )
+
+    def remove_radar(self, chat_id: int, symbol: str) -> bool:
+        _, rowcount = self._exec(
+            "DELETE FROM radar WHERE chat_id=? AND symbol=?",
+            (chat_id, symbol.upper()),
+        )
+        return rowcount > 0
+
+    def list_radar(self, chat_id: int) -> List[str]:
+        rows, _ = self._exec(
+            "SELECT symbol FROM radar WHERE chat_id=? ORDER BY symbol",
+            (chat_id,),
+            fetch="all",
+        )
+        return [r["symbol"] for r in rows]
+
+    def all_radar_symbols(self) -> List[str]:
+        rows, _ = self._exec("SELECT DISTINCT symbol FROM radar", fetch="all")
+        return [r["symbol"] for r in rows]
+
+    def subscribers_radar(self, symbol: str) -> List[int]:
+        rows, _ = self._exec(
+            "SELECT chat_id FROM radar WHERE symbol=?",
             (symbol.upper(),),
             fetch="all",
         )

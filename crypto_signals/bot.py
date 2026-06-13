@@ -26,22 +26,24 @@ log = logging.getLogger(__name__)
 
 WELCOME = (
     "👋 *PriceMonitorX*'e hoş geldin!\n\n"
-    "Kripto paraların yükselme olasılığını 8 sinyalin konfluensiyle özetlerim.\n\n"
-    "• `/sinyal BTC` — anlık rapor\n"
-    "• `/radar` — en güçlü boğa sinyalleri\n"
-    "• `/aktif` — açık sinyaller\n"
-    "• `/ekle SOL` · `/sil SOL` — takip listesi\n"
-    "• `/liste` — watchlist özeti\n"
+    "Kripto paraların yükselme olasılığını 9 sinyalin konfluensiyle özetlerim.\n\n"
+    "• `/liste` — çekirdek takip listen (skorlarıyla)\n"
+    "• `/check` — ilk 100 coinde fırsat tara, radara ekle\n"
+    "• `/radar` — radarındaki fırsatlar\n"
+    "• `/sinyal BTC` — tek coin anlık rapor\n"
+    "• `/ekle SOL` · `/sil SOL` — listeyi düzenle\n"
     "• `/korku` — Korku & Açgözlülük endeksi\n"
-    "• `/abonelik_iptal` — otomatik alarmları kapat\n\n"
+    "• `/abonelik_iptal` — uyarıları kapat\n\n"
+    "Liste ve radardaki coinlerde formasyon bozulunca ya da 2×ATR stop kırılınca "
+    "otomatik uyarı gelir.\n\n"
     "_Yatırım tavsiyesi değildir. DYOR._"
 )
 
 
 def _keyboard() -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("/radar", "/aktif", "/liste")
-    kb.row("/korku")
+    kb.row("/liste", "/radar", "/check")
+    kb.row("/korku", "/aktif")
     return kb
 
 
@@ -61,9 +63,29 @@ def build_bot(
     def reply(message, text: str) -> None:
         bot.send_message(message.chat.id, text, reply_markup=_keyboard())
 
+    def _analyze(base: str):
+        candles = binance.fetch_candles(base, limit=250)
+        if len(candles) < 60:
+            return None
+        ticker = binance.ticker_for(base)
+        change = ticker.change_pct if ticker else None
+        premium = binance.fetch_premium(base) if cfg.enable_futures_basis else None
+        return analyze(
+            base,
+            candles,
+            change,
+            fng.fetch(),
+            premium=premium,
+            strong_threshold=cfg.alert_score_threshold,
+        )
+
     @bot.message_handler(commands=["start", "yardim", "help"])
     def on_start(message):
         storage.add_subscriber(message.chat.id)
+        # İlk girişte çekirdek listeyi otomatik kur
+        if not storage.list_watch(message.chat.id):
+            for sym in cfg.default_symbols:
+                storage.add_watch(message.chat.id, sym)
         reply(message, WELCOME)
 
     @bot.message_handler(commands=["sinyal"])
@@ -74,21 +96,10 @@ def build_bot(
             reply(message, "Kullanım: `/sinyal BTC`")
             return
         try:
-            candles = binance.fetch_candles(base, limit=250)
-            if len(candles) < 60:
+            a = _analyze(base)
+            if a is None:
                 reply(message, f"`{base}` için yeterli veri yok.")
                 return
-            ticker = binance.ticker_for(base)
-            change = ticker.change_pct if ticker else None
-            premium = binance.fetch_premium(base) if cfg.enable_futures_basis else None
-            a = analyze(
-                base,
-                candles,
-                change,
-                fng.fetch(),
-                premium=premium,
-                strong_threshold=cfg.alert_score_threshold,
-            )
             reply(message, formatting.format_analysis(a))
         except Exception:
             log.exception("/sinyal hatası")
@@ -97,7 +108,88 @@ def build_bot(
     @bot.message_handler(commands=["radar"])
     def on_radar(message):
         storage.add_subscriber(message.chat.id)
-        reply(message, formatting.format_radar(storage.top_snapshots(10)))
+        symbols = storage.list_radar(message.chat.id)
+        snaps = storage.snapshots_for(symbols)
+        reply(message, formatting.format_radar(snaps, symbols))
+
+    @bot.message_handler(commands=["check"])
+    def on_check(message):
+        storage.add_subscriber(message.chat.id)
+        chat_id = message.chat.id
+        bot.send_message(chat_id, "🔍 İlk 100 coin taranıyor, ~30 sn sürebilir…")
+        tracked = set(storage.list_watch(chat_id)) | set(storage.list_radar(chat_id))
+        try:
+            top = binance.top_symbols(cfg.check_top_n, set(cfg.exclude_bases))
+        except Exception:
+            log.exception("/check top listesi alınamadı")
+            reply(message, "Tarama listesi alınamadı, birazdan tekrar dene.")
+            return
+        candidates = []
+        for sym in top:
+            if sym in tracked:
+                continue
+            try:
+                a = _analyze(sym)
+                if a is not None and a.composite >= cfg.check_score_threshold:
+                    candidates.append(a)
+            except Exception:
+                continue
+            time.sleep(0.1)  # hafif throttle
+        candidates.sort(key=lambda a: a.composite, reverse=True)
+        candidates = candidates[:15]
+        markup = None
+        if candidates:
+            markup = types.InlineKeyboardMarkup()
+            for a in candidates:
+                markup.add(
+                    types.InlineKeyboardButton(
+                        f"➕ {a.symbol}  (%{a.bull_prob:.0f})",
+                        callback_data=f"radar_add:{a.symbol}",
+                    )
+                )
+        bot.send_message(chat_id, formatting.format_check(candidates), reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("radar_add:"))
+    def on_radar_add(call):
+        sym = call.data.split(":", 1)[1]
+        chat_id = call.message.chat.id
+        storage.add_subscriber(chat_id)
+        storage.add_radar(chat_id, sym)
+        try:
+            a = _analyze(sym)
+            if a is not None:
+                storage.upsert_snapshot(sym, a.composite, a.rating, a.price)
+                storage.upsert_open_signal(
+                    sym, a.price, a.rating, a.composite, stop=a.stop_suggestion
+                )
+                stop_txt = (
+                    f" · 🛑 `{formatting._fmt_price(a.stop_suggestion)}`"
+                    if a.stop_suggestion is not None
+                    else ""
+                )
+                bot.answer_callback_query(call.id, f"{sym} radara eklendi ✅")
+                bot.send_message(
+                    chat_id,
+                    f"📡 *{sym}* radara eklendi · giriş `{formatting._fmt_price(a.price)}`{stop_txt}",
+                )
+            else:
+                bot.answer_callback_query(call.id, f"{sym} eklendi (veri yetersiz)")
+        except Exception:
+            log.exception("radar_add hatası")
+            bot.answer_callback_query(call.id, f"{sym} eklendi, analiz sonra güncellenecek")
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("radar_del:"))
+    def on_radar_del(call):
+        sym = call.data.split(":", 1)[1]
+        chat_id = call.message.chat.id
+        removed = storage.remove_radar(chat_id, sym)
+        if not storage.subscribers_radar(sym) and not storage.subscribers_watching(sym):
+            storage.delete_open_signal(sym)  # kimse takip etmiyorsa kaydı temizle
+        bot.answer_callback_query(
+            call.id, f"{sym} radardan çıkarıldı" if removed else f"{sym} radarda değil"
+        )
+        if removed:
+            bot.send_message(chat_id, f"➖ *{sym}* radardan çıkarıldı.")
 
     @bot.message_handler(commands=["aktif"])
     def on_active(message):
@@ -174,8 +266,17 @@ def main() -> None:
     fng = FearGreedProvider()
     bot = build_bot(cfg, storage, binance, fng)
 
-    def notify(chat_id: int, text: str) -> None:
-        bot.send_message(chat_id, text)
+    def notify(chat_id: int, text: str, remove_symbol: Optional[str] = None) -> None:
+        markup = None
+        if remove_symbol:
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton(
+                    f"➖ {remove_symbol} radardan çıkar",
+                    callback_data=f"radar_del:{remove_symbol}",
+                )
+            )
+        bot.send_message(chat_id, text, reply_markup=markup)
 
     scheduler = Scheduler(cfg, storage, binance, fng, notify)
     scheduler.start()

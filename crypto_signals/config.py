@@ -54,15 +54,22 @@ def _get_list(name: str, default: list[str]) -> list[str]:
     return [item.strip().upper() for item in raw.split(",") if item.strip()]
 
 
+DEFAULT_WATCHLIST = [
+    "BTC", "ETH", "SOL", "AVAX", "LINK", "ONDO",
+    "WLD", "RENDER", "LDO", "POPCAT", "WIF",
+]
+
+
 @dataclass(frozen=True)
 class Config:
     telegram_token: str
     quote_asset: str = "USDT"
-    dynamic_top_n: int = 150
-    default_symbols: list[str] = field(default_factory=lambda: ["BTC", "ETH", "SOL"])
+    check_top_n: int = 100  # /check taramasında bakılacak coin sayısı (hacme göre)
+    default_symbols: list[str] = field(default_factory=lambda: list(DEFAULT_WATCHLIST))
     exclude_bases: list[str] = field(default_factory=list)
     alert_score_threshold: float = 0.40
     signal_exit_threshold: float = 0.20
+    check_score_threshold: float = 0.50  # /check'te radara aday olma eşiği
     scan_interval_min: int = 15
     enable_futures_basis: bool = True
     db_path: str = "crypto_signals.db"
@@ -82,11 +89,12 @@ class Config:
         return cls(
             telegram_token=token,
             quote_asset=os.getenv("QUOTE_ASSET", "USDT").strip().upper() or "USDT",
-            dynamic_top_n=_get_int("DYNAMIC_TOP_N", 150),
-            default_symbols=_get_list("DEFAULT_SYMBOLS", ["BTC", "ETH", "SOL"]),
+            check_top_n=_get_int("CHECK_TOP_N", 100),
+            default_symbols=_get_list("DEFAULT_SYMBOLS", DEFAULT_WATCHLIST),
             exclude_bases=_get_list("EXCLUDE_BASES", []),
             alert_score_threshold=_get_float("ALERT_SCORE_THRESHOLD", 0.40),
             signal_exit_threshold=_get_float("SIGNAL_EXIT_THRESHOLD", 0.20),
+            check_score_threshold=_get_float("CHECK_SCORE_THRESHOLD", 0.50),
             scan_interval_min=_get_int("SCAN_INTERVAL_MIN", 15),
             enable_futures_basis=_get_bool("ENABLE_FUTURES_BASIS", True),
             db_path=os.getenv("DB_PATH", "crypto_signals.db").strip() or "crypto_signals.db",

@@ -18,8 +18,9 @@ from .signals import WEAK, analyze
 
 log = logging.getLogger(__name__)
 
-# Telegram mesajı gönderen callback: (chat_id, markdown_text) -> None
-Notifier = Callable[[int, str], None]
+# Telegram mesajı gönderen callback: (chat_id, markdown_text, remove_symbol) -> None
+# remove_symbol verilirse mesajın altına "radardan çıkar" butonu eklenir.
+Notifier = Callable[[int, str, Optional[str]], None]
 
 
 class Scheduler:
@@ -63,39 +64,23 @@ class Scheduler:
                 log.exception("Tarama sırasında hata")
 
     def universe(self) -> List[str]:
-        """Taranacak evren: açık sinyaller + watchlist'ler + dinamik top-N.
+        """Taranacak evren: yalnızca takip edilen coinler.
 
-        Açık sinyaller her zaman dahil edilir; bir coin sinyal verdikten sonra
-        hacmi düşüp top-N'den çıksa bile formasyonu izlenmeye devam eder, böylece
-        "FORMASYON BOZULDU" uyarısı garanti gönderilir.
+        = tüm /liste (watchlist) + tüm /radar + açık sinyaller. Artık dinamik
+        top-N taranmıyor; geniş tarama yalnızca /check ile anlık yapılır. Açık
+        sinyaller her zaman dahildir ki formasyon/stop uyarısı garanti gönderilsin.
         """
         symbols = set(self.storage.all_watched_symbols())
+        symbols |= set(self.storage.all_radar_symbols())
         symbols |= {s.symbol for s in self.storage.list_open_signals()}
-        if self.cfg.dynamic_top_n > 0:
-            try:
-                symbols |= set(
-                    self.binance.top_symbols(
-                        self.cfg.dynamic_top_n, set(self.cfg.exclude_bases)
-                    )
-                )
-            except Exception:
-                log.exception("Dinamik evren alınamadı")
-        else:
-            symbols |= set(self.cfg.default_symbols)
         return sorted(symbols)
 
     def _recipients(self, symbol: str) -> List[int]:
-        """Bu sembol için bildirilecek chat_id'ler.
-
-        Watchlist'i olanlar yalnızca kendi coinlerini; watchlist'i boş aktif
-        aboneler dinamik evrenin tamamını alır.
-        """
-        watchers = set(self.storage.subscribers_watching(symbol))
-        recipients = set(watchers)
-        for chat_id in self.storage.active_subscribers():
-            if not self.storage.list_watch(chat_id):
-                recipients.add(chat_id)
-        return list(recipients)
+        """Bu sembolü takip eden (liste VEYA radar) chat_id'ler."""
+        return list(
+            set(self.storage.subscribers_watching(symbol))
+            | set(self.storage.subscribers_radar(symbol))
+        )
 
     def scan_once(self) -> None:
         symbols = self.universe()
@@ -137,7 +122,7 @@ class Scheduler:
     def _lifecycle(self, symbol: str, analysis) -> None:
         open_signal = self.storage.get_open_signal(symbol)
         if open_signal is None:
-            # Yeni sinyal: eşiği aştı mı?
+            # Takip edilen coin güçlendi → yeni sinyal aç (giriş + 2×ATR stop)
             if analysis.composite >= self.cfg.alert_score_threshold:
                 self.storage.upsert_open_signal(
                     symbol,
@@ -149,18 +134,25 @@ class Scheduler:
                 self._broadcast(symbol, formatting.format_new_signal(analysis))
             return
 
-        # Açık sinyal var — çıkış (formasyon bozuldu) koşulu mu?
+        # 1) Fiyat-bazlı 2×ATR stop kırılması (skor ne olursa olsun)
+        if open_signal.stop is not None and analysis.price <= open_signal.stop:
+            msg = formatting.format_stop_hit(open_signal, analysis.price)
+            self.storage.delete_open_signal(symbol)
+            self._broadcast(symbol, msg, offer_remove=True)
+            return
+
+        # 2) Skor-bazlı formasyon bozulması
         structural_break = analysis.rating == WEAK
         below_exit = analysis.composite < self.cfg.signal_exit_threshold
         if structural_break or below_exit:
             reason = (
                 "yapısal kırılma (rating ZAYIF)"
                 if structural_break
-                else f"skor çıkış eşiğinin altında (`{analysis.composite:+.2f}`)"
+                else f"skor çıkış eşiğinin altında (%{analysis.bull_prob:.0f})"
             )
             msg = formatting.format_signal_exit(open_signal, analysis.price, reason)
             self.storage.delete_open_signal(symbol)
-            self._broadcast(symbol, msg)
+            self._broadcast(symbol, msg, offer_remove=True)
         else:
             # Hâlâ açık — skoru güncelle (giriş fiyatı ve stop korunur)
             self.storage.upsert_open_signal(
@@ -171,9 +163,15 @@ class Scheduler:
                 stop=open_signal.stop,
             )
 
-    def _broadcast(self, symbol: str, text: str) -> None:
+    def _broadcast(self, symbol: str, text: str, offer_remove: bool = False) -> None:
+        # Radar uyarılarında "radardan çıkar" butonu yalnızca o coini radarında
+        # tutan kullanıcıya gösterilir.
+        radar_subs = (
+            set(self.storage.subscribers_radar(symbol)) if offer_remove else set()
+        )
         for chat_id in self._recipients(symbol):
+            remove_symbol = symbol if chat_id in radar_subs else None
             try:
-                self.notify(chat_id, text)
+                self.notify(chat_id, text, remove_symbol)
             except Exception:
                 log.warning("Bildirim gönderilemedi: %s", chat_id, exc_info=True)

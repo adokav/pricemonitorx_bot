@@ -58,39 +58,42 @@ pytest                        # testler
 ## 💬 Komutlar
 | Komut | Açıklama |
 |---|---|
-| `/sinyal BTC` | Anlık sinyal raporu |
-| `/radar` | Son taramadaki en güçlü boğa sinyalleri (skora göre sıralı) |
-| `/aktif` | Açık (izlenen) sinyaller |
-| `/ekle SOL` · `/sil SOL` | Takip listesi yönetimi |
-| `/liste` | Watchlist özeti (skora göre sıralı) |
+| `/liste` | Çekirdek takip listen (skorlarıyla, büyükten küçüğe) |
+| `/check` | İlk `CHECK_TOP_N` coinde fırsat tarar; eşiği geçenleri **➕ Radara ekle** butonuyla sunar |
+| `/radar` | Radarına eklediğin fırsatlar |
+| `/sinyal BTC` | Tek coin anlık sinyal raporu |
+| `/ekle SOL` · `/sil SOL` | Çekirdek listeyi düzenle |
+| `/aktif` | Açık (izlenen) sinyaller + 2×ATR stop |
 | `/korku` | Piyasa Korku & Açgözlülük endeksi |
-| `/abonelik_iptal` | Otomatik alarmları kapat |
+| `/abonelik_iptal` | Otomatik uyarıları kapat |
 
 ## 🌐 Hangi coinler taranır?
-- **Dinamik evren (varsayılan):** watchlist'i **boş** kullanıcılar için bot,
-  Binance 24s hacmine göre **ilk `DYNAMIC_TOP_N` coin'i** (vars. **150**) her
-  taramada yeniden seçip tarar. Stablecoin/fiat çiftleri elenir; `EXCLUDE_BASES`
-  ile ek hariç tutma yapılabilir.
-- **Kişisel watchlist:** `/ekle`–`/sil` ile liste tanımlayan kullanıcı yalnızca
-  kendi coinlerini izler.
-- `DYNAMIC_TOP_N=0` → dinamik mod kapanır, `DEFAULT_SYMBOLS` kullanılır.
-
-Tek toplu ticker çağrısı hem top-N seçimi hem 24s momentum için kullanılır
-(coin başına ekstra istek yok); büyük taramada hız limiti için hafif throttle var.
+- **Periyodik tarama (her `SCAN_INTERVAL_MIN` dk):** yalnızca **takip edilen**
+  coinler — yani tüm kullanıcıların `/liste` (watchlist) + `/radar` coinleri +
+  açık sinyaller. Geniş/dinamik tarama yapılmaz (verimlilik).
+- **`/check` (anlık, isteğe bağlı):** Binance 24s hacmine göre **ilk
+  `CHECK_TOP_N` coin'i** tarar (listende/radarında olanlar hariç),
+  `CHECK_SCORE_THRESHOLD`'u geçenleri aday gösterir. Stablecoin/fiat çiftleri ve
+  `EXCLUDE_BASES` elenir.
+- **Uyarılar:** liste + radar coinlerinde formasyon bozulunca **veya** fiyat
+  2×ATR stop'a değince otomatik bildirim. Radar uyarılarında **➖ Radardan çıkar**
+  butonu bulunur.
 
 ## ⚙️ Ortam Değişkenleri
 | Değişken | Zorunlu | Varsayılan | Açıklama |
 |---|---|---|---|
 | `TELEGRAM_TOKEN` | ✅ | — | BotFather token'ı |
-| `DYNAMIC_TOP_N` | ➖ | `150` | Watchlist'i boş olanlar için: hacme göre ilk N coin (0=kapalı) |
-| `EXCLUDE_BASES` | ➖ | — | Dinamik evrenden hariç tut (ör. `PEPE,SHIB`) |
-| `DEFAULT_SYMBOLS` | ➖ | `BTC,ETH,SOL` | `DYNAMIC_TOP_N=0` ise sabit liste |
+| `DEFAULT_SYMBOLS` | ➖ | `BTC,ETH,SOL,AVAX,LINK,ONDO,WLD,RENDER,LDO,POPCAT,WIF` | `/start`'ta kurulan çekirdek liste |
+| `CHECK_TOP_N` | ➖ | `100` | `/check`'te hacme göre taranacak coin sayısı |
+| `CHECK_SCORE_THRESHOLD` | ➖ | `0.50` | `/check`'te radara aday olma eşiği |
+| `EXCLUDE_BASES` | ➖ | — | `/check` evreninden hariç tut (ör. `PEPE,SHIB`) |
 | `ALERT_SCORE_THRESHOLD` | ➖ | `0.40` | Yeni sinyal (giriş) eşiği — 🟢 GÜÇLÜ sınırı |
 | `SIGNAL_EXIT_THRESHOLD` | ➖ | `0.20` | Formasyon bozuldu (çıkış) eşiği — histerezis |
 | `QUOTE_ASSET` | ➖ | `USDT` | İşlem çifti karşılığı |
 | `SCAN_INTERVAL_MIN` | ➖ | `15` | Periyodik tarama sıklığı (dk) |
 | `ENABLE_FUTURES_BASIS` | ➖ | `true` | Vadeli/Spot farkı sinyali (futures erişilemezse otomatik atlanır) |
-| `DB_PATH` | ➖ | `crypto_signals.db` | SQLite dosya yolu |
+| `DATABASE_URL` | ➖ | — | PostgreSQL bağlantısı (kalıcı veri); yoksa SQLite |
+| `DB_PATH` | ➖ | `crypto_signals.db` | SQLite dosya yolu (DATABASE_URL yoksa) |
 
 ## ☁️ Deploy (Render)
 Background Worker olarak `python crypto_bot.py`. `PORT` tanımlıysa otomatik

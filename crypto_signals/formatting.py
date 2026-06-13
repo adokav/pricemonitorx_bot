@@ -79,15 +79,71 @@ def format_signal_exit(signal: OpenSignal, current_price: float, reason: str) ->
     )
 
 
-def format_radar(snapshots: List[Snapshot]) -> str:
-    if not snapshots:
-        return "Henüz tarama yapılmadı. Birazdan tekrar deneyin."
-    lines = ["📡 *RADAR* — en güçlü boğa sinyalleri:", ""]
-    for i, s in enumerate(snapshots, 1):
+def _format_tracked(
+    title: str, snapshots: List[Snapshot], symbols: List[str], empty_msg: str
+) -> str:
+    if not symbols:
+        return empty_msg
+    strong = sum(1 for s in snapshots if s.score >= 0.40)
+    weak = sum(1 for s in snapshots if s.score <= -0.40)
+    neutral = len(snapshots) - strong - weak
+    header = f"{title} · {len(symbols)} coin"
+    if snapshots:
+        header += f"\n🟢 {strong}  ·  🟡 {neutral}  ·  🔴 {weak}"
+    lines = [header, ""]
+    for s in snapshots:
+        pct = bull_pct(s.score)
         lines.append(
-            f"{i}. *{s.symbol}* {s.rating} · *%{bull_pct(s.score):.0f}* · `{_fmt_price(s.price)}`"
+            f"{_rating_icon(s.rating)} *{s.symbol}* — *%{pct:.0f}*\n"
+            f"`{_bar(pct)}`  `{_fmt_price(s.price)}`"
         )
+    scored = {s.symbol for s in snapshots}
+    pending = [sym for sym in symbols if sym not in scored]
+    if pending:
+        lines.append("")
+        lines.append("⏳ _Sırada (henüz taranmadı):_ " + ", ".join(pending))
     return "\n".join(lines)
+
+
+def format_radar(snapshots: List[Snapshot], symbols: List[str]) -> str:
+    return _format_tracked(
+        "📡 *RADAR*",
+        snapshots,
+        symbols,
+        "📡 *Radar boş.*\n\n`/check` ile fırsat taraması yapıp coin ekleyebilirsin.",
+    )
+
+
+def format_check(candidates) -> str:
+    """candidates: skora göre sıralı Analysis listesi."""
+    if not candidates:
+        return (
+            "🔍 İlk 100 coinde eşiği geçen yeni fırsat bulunamadı.\n"
+            "Piyasa zayıf olabilir; sonra tekrar dene."
+        )
+    lines = ["🔍 *FIRSAT TARAMASI* — eşiği geçen coinler:", ""]
+    for a in candidates:
+        lines.append(
+            f"{_rating_icon(a.rating)} *{a.symbol}* — *%{a.bull_prob:.0f}*  `{_bar(a.bull_prob)}`"
+        )
+    lines.append("")
+    lines.append("_Aşağıdaki butonlarla radara ekleyebilirsin._")
+    return "\n".join(lines)
+
+
+def format_stop_hit(signal: OpenSignal, current_price: float) -> str:
+    if signal.entry_price:
+        change = (current_price - signal.entry_price) / signal.entry_price * 100.0
+        change_txt = f"{change:+.2f}%"
+    else:
+        change_txt = "—"
+    stop_txt = _fmt_price(signal.stop) if signal.stop is not None else "—"
+    return (
+        f"🛑 *STOP KIRILDI* — *{signal.symbol}*\n"
+        f"Giriş: `{_fmt_price(signal.entry_price)}` → Şimdi: `{_fmt_price(current_price)}`  "
+        f"(*{change_txt}*)\n"
+        f"2×ATR stop (`{stop_txt}`) seviyesi kırıldı."
+    )
 
 
 def format_active(signals: List[OpenSignal]) -> str:
@@ -106,35 +162,12 @@ def format_active(signals: List[OpenSignal]) -> str:
 
 
 def format_watchlist(snapshots: List[Snapshot], symbols: List[str]) -> str:
-    if not symbols:
-        return (
-            "📋 *Takip listen boş.*\n\n"
-            "`/ekle BTC` ile coin ekleyebilirsin.\n"
-            "Liste boşken bot otomatik olarak en yüksek hacimli coinleri tarar."
-        )
-    # snapshots zaten skora göre büyükten küçüğe sıralı gelir.
-    strong = sum(1 for s in snapshots if s.score >= 0.40)
-    weak = sum(1 for s in snapshots if s.score <= -0.40)
-    neutral = len(snapshots) - strong - weak
-
-    header = f"📋 *TAKİP LİSTEN* · {len(symbols)} coin"
-    if snapshots:
-        header += f"\n🟢 {strong}  ·  🟡 {neutral}  ·  🔴 {weak}"
-    lines = [header, ""]
-
-    for s in snapshots:
-        pct = bull_pct(s.score)
-        lines.append(
-            f"{_rating_icon(s.rating)} *{s.symbol}* — *%{pct:.0f}*\n"
-            f"`{_bar(pct)}`  `{_fmt_price(s.price)}`"
-        )
-
-    scored = {s.symbol for s in snapshots}
-    pending = [sym for sym in symbols if sym not in scored]
-    if pending:
-        lines.append("")
-        lines.append("⏳ _Sırada (henüz taranmadı):_ " + ", ".join(pending))
-    return "\n".join(lines)
+    return _format_tracked(
+        "📋 *TAKİP LİSTEN*",
+        snapshots,
+        symbols,
+        "📋 *Takip listen boş.*\n\n`/ekle BTC` ile coin ekleyebilirsin.",
+    )
 
 
 def format_fear_greed(value: int) -> str:
