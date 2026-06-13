@@ -134,12 +134,15 @@ class Scheduler:
         analysis = analyze(
             symbol, candles, ctx, strong_threshold=self.cfg.alert_score_threshold
         )
+        # Önceki rating'i (snapshot'tan) güncellemeden önce yakala → geçiş tespiti
+        prev = self.storage.snapshots_for([symbol])
+        prev_rating = prev[0].rating if prev else None
         self.storage.upsert_snapshot(
             symbol, analysis.composite, analysis.rating, analysis.price
         )
-        self._lifecycle(symbol, analysis)
+        self._lifecycle(symbol, analysis, prev_rating)
 
-    def _lifecycle(self, symbol: str, analysis) -> None:
+    def _lifecycle(self, symbol: str, analysis, prev_rating: Optional[str] = None) -> None:
         open_signal = self.storage.get_open_signal(symbol)
         if open_signal is None:
             # Takip edilen coin güçlendi → yeni sinyal aç (giriş + 2×ATR stop)
@@ -152,6 +155,14 @@ class Scheduler:
                     stop=analysis.stop_suggestion,
                 )
                 self._broadcast(symbol, formatting.format_new_signal(analysis))
+                return
+            # Açık sinyali olmayan takip coini ZAYIF'a döndüyse trend bozulma uyarısı
+            if (
+                analysis.rating == WEAK
+                and prev_rating is not None
+                and prev_rating != WEAK
+            ):
+                self._broadcast(symbol, formatting.format_trend_down(symbol, analysis))
             return
 
         # 1) Fiyat-bazlı 2×ATR stop kırılması (skor ne olursa olsun)

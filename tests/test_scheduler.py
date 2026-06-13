@@ -56,3 +56,30 @@ def test_recipients_union_of_watchers_and_radar():
     st.add_radar(2, "BTC")
     recipients = set(_scheduler(st)._recipients("BTC"))
     assert recipients == {1, 2}
+
+
+def test_trend_down_alert_without_open_signal():
+    from types import SimpleNamespace
+
+    events = []
+    st = Storage(":memory:")
+    st.add_subscriber(1)
+    st.add_watch(1, "FOO")
+    sched = Scheduler(
+        Config(telegram_token="x:y"), st, _StubBinance(), _StubFng(),
+        lambda c, t, r=None: events.append(t.split("\n")[0]),
+    )
+
+    def mk(rating, comp):
+        return SimpleNamespace(
+            symbol="FOO", price=10.0, composite=comp, rating=rating,
+            bull_prob=(comp + 1) / 2 * 100, stop_suggestion=None, regime="RANGE",
+        )
+
+    # NÖTR iken hiç açık sinyal yokken ZAYIF'a dönerse trend uyarısı gelmeli
+    sched._lifecycle("FOO", mk("🔴 ZAYIF", -0.5), prev_rating="🟡 NÖTR")
+    assert any("TREND ZAYIFLADI" in e for e in events)
+    # İlk görülüşte (prev_rating None) uyarı olmamalı
+    events.clear()
+    sched._lifecycle("FOO", mk("🔴 ZAYIF", -0.5), prev_rating=None)
+    assert events == []

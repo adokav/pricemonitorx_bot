@@ -170,6 +170,15 @@ def format_evaluation(symbol: str, a: Analysis, ev) -> str:
     return "\n".join(lines)
 
 
+def format_trend_down(symbol: str, a) -> str:
+    return (
+        f"🔴 *TREND ZAYIFLADI* — *{symbol}*\n"
+        f"{a.rating} · boğa olasılığı *%{a.bull_prob:.0f}*\n"
+        f"Fiyat `{_fmt_price(a.price)}` · {_REGIME_LABEL.get(a.regime, a.regime)}\n"
+        f"Takip listendeki bu coinin trendi aşağı döndü — dikkat."
+    )
+
+
 def format_stop_hit(signal: OpenSignal, current_price: float) -> str:
     if signal.entry_price:
         change = (current_price - signal.entry_price) / signal.entry_price * 100.0
