@@ -152,7 +152,22 @@ def build_bot(
         storage.add_subscriber(message.chat.id)
         symbols = storage.list_radar(message.chat.id)
         snaps = storage.snapshots_for(symbols)
-        reply(message, formatting.format_radar(snaps, symbols))
+        markup = None
+        if symbols:
+            # Her radar coini için "çıkar" butonu (skora göre sıralı)
+            ordered = [s.symbol for s in snaps] + [
+                sym for sym in symbols if sym not in {s.symbol for s in snaps}
+            ]
+            markup = types.InlineKeyboardMarkup()
+            for sym in ordered:
+                markup.add(
+                    types.InlineKeyboardButton(
+                        f"➖ {sym} çıkar", callback_data=f"radar_del:{sym}"
+                    )
+                )
+        bot.send_message(
+            message.chat.id, formatting.format_radar(snaps, symbols), reply_markup=markup
+        )
 
     @bot.message_handler(commands=["check"])
     def on_check(message):
